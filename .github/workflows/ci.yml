@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openspec:
+    name: Validate OpenSpec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate specs and changes
+        run: npx -y @fission-ai/openspec@latest validate --all --strict --no-interactive
+
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect stack
+        id: detect
+        run: |
+          [ -f package.json ] && echo "node=true" >> "$GITHUB_OUTPUT" || true
+          { [ -f pyproject.toml ] || [ -f requirements.txt ]; } && echo "python=true" >> "$GITHUB_OUTPUT" || true
+
+      # --- Node ---
+      - if: steps.detect.outputs.node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.detect.outputs.node == 'true'
+        run: npm ci
+      - if: steps.detect.outputs.node == 'true'
+        run: npm run lint --if-present
+      - if: steps.detect.outputs.node == 'true'
+        run: npm test --if-present
+      - if: steps.detect.outputs.node == 'true'
+        run: npm run build --if-present
+
+      # --- Python ---
+      - if: steps.detect.outputs.python == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: steps.detect.outputs.python == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f pyproject.toml ]; then pip install -e ".[dev]" || pip install -e .; fi
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest
+      - if: steps.detect.outputs.python == 'true'
+        run: pytest || [ $? -eq 5 ]  # exit 5 = no tests collected
+
+      - if: steps.detect.outputs.node != 'true' && steps.detect.outputs.python != 'true'
+        run: echo "No package.json / pyproject.toml / requirements.txt yet — nothing to build."
