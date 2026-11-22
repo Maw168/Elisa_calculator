@@ -51,6 +51,15 @@ jobs:
         run: npm test --if-present
       - if: steps.detect.outputs.node == 'true'
         run: npm run build --if-present
+      # Downloadable built app (Actions run page -> Artifacts). Only people with
+      # access to this repository can download it. Serve it with `npx serve`.
+      - if: steps.detect.outputs.node == 'true' && hashFiles('dist/index.html') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: elisa-calculator-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
 
       # --- Python ---
       - if: steps.detect.outputs.python == 'true'
