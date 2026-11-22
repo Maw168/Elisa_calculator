@@ -28,10 +28,24 @@ function isValidAssignment(x: unknown): x is Assignment {
   });
 }
 
+function isPositive(x: unknown): x is number {
+  return typeof x === 'number' && Number.isFinite(x) && x > 0;
+}
+
+/** Keeps only valid positive per-condition dilutions; anything else becomes {}. */
+function toDilutions(x: unknown): Record<string, number> {
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return {};
+  return Object.fromEntries(Object.entries(x as Record<string, unknown>).filter(([, v]) => isPositive(v))) as Record<
+    string,
+    number
+  >;
+}
+
 function toSettings(x: unknown): Settings {
   const s = (x ?? {}) as Partial<Settings>;
   return {
-    dilution: typeof s.dilution === 'number' && s.dilution > 0 ? s.dilution : DEFAULT_SETTINGS.dilution,
+    dilution: isPositive(s.dilution) ? s.dilution : DEFAULT_SETTINGS.dilution,
+    dilutions: toDilutions(s.dilutions),
     inputUnit: UNITS.includes(s.inputUnit!) ? s.inputUnit! : DEFAULT_SETTINGS.inputUnit,
     outputUnit: UNITS.includes(s.outputUnit!) ? s.outputUnit! : DEFAULT_SETTINGS.outputUnit,
     errorBar: s.errorBar === 'SEM' ? 'SEM' : 'SD',
@@ -79,6 +93,15 @@ export function saveTemplates(storage: StorageLike | null, templates: Template[]
   } catch {
     return false;
   }
+}
+
+/** Settings to store in a template: per-condition dilutions limited to the template's own conditions. */
+export function templateSettings(settings: Settings, assignment: Assignment): Settings {
+  const present = new Set(Object.values(assignment).map((a) => a.condition));
+  return {
+    ...settings,
+    dilutions: Object.fromEntries(Object.entries(settings.dilutions).filter(([c]) => present.has(c))),
+  };
 }
 
 /** Adds or replaces (by name) a template. */

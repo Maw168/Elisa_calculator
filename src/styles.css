@@ -66,6 +66,14 @@ button.primary:hover:not(:disabled) { background: #1f5bbf; }
 .well.excluded .value { text-decoration: line-through; color: var(--danger); }
 
 .side input:not([type=radio]):not([type=file]) { width: 100%; }
+.conditions-panel { margin-top: 12px; }
+.condition-list { list-style: none; padding: 0; margin: 4px 0; }
+.condition-list li, .condition-default { display: flex; gap: 6px; align-items: center; padding: 3px 0; }
+.condition-list li { border-bottom: 1px solid #eaeef2; }
+.condition-default { margin-top: 4px; font-weight: 600; font-size: 13px; }
+.conditions-panel .swatch { flex: none; width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,0.15); }
+.conditions-panel .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.side .conditions-panel input:not([type=radio]):not([type=file]) { width: 90px; flex: none; }
 .templates .row input { flex: 1; min-width: 0; }
 .template-list { list-style: none; padding: 0; margin: 8px 0; }
 .template-list li { display: flex; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid #eaeef2; }

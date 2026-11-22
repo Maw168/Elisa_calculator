@@ -7,30 +7,29 @@ import {
   conditionNames,
   findNearDuplicates,
   mergeCondition,
+  mergeDilutions,
   moveCondition,
   reconcileOrder,
 } from './core/assignment';
-import { computeResults, parseDilution } from './core/calc';
+import { computeResults } from './core/calc';
+import { colorFor } from './core/colors';
 import { buildWorkbook, downloadWorkbook, hasExportableResults, prismText } from './core/export';
 import type { Assignment } from './core/types';
 import {
   getBrowserStorage,
   loadTemplates,
   saveTemplates,
+  templateSettings,
   upsertTemplate,
   type Template,
 } from './core/templates';
 import { PlateInput } from './components/PlateInput';
 import { PlateGrid } from './components/PlateGrid';
 import { AssignPanel } from './components/AssignPanel';
+import { ConditionsPanel } from './components/ConditionsPanel';
 import { TemplatesPanel } from './components/TemplatesPanel';
 import { ResultsTable } from './components/ResultsTable';
 import { ResultsChart } from './components/ResultsChart';
-
-const PALETTE = [
-  '#a8c8f0', '#f7b89a', '#9fdcc0', '#f5d78a', '#f2b3cd', '#b9dc8f',
-  '#c4bdf2', '#f4a7a6', '#9ed6e6', '#e3c39d', '#d3b6e0', '#c9d1d9',
-];
 
 function baseName(source: string): string {
   return source === 'pasted' || source === '' ? 'elisa' : source.replace(/\.[^.]+$/, '');
@@ -46,13 +45,15 @@ export default function App() {
   const [excluded, setExcluded] = useState<Set<WellId>>(new Set());
   const [order, setOrder] = useState<string[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [dilutionText, setDilutionText] = useState(String(DEFAULT_SETTINGS.dilution));
+  // Bumped when a template replaces the settings, so the conditions panel drops any half-typed text.
+  const [dilutionResetKey, setDilutionResetKey] = useState(0);
   const [selection, setSelection] = useState<Set<WellId>>(new Set());
   const [colorKeys, setColorKeys] = useState<string[]>([]);
   const [templates, setTemplates] = useState<Template[]>(initialTemplates.templates);
   const [storageAvailable, setStorageAvailable] = useState(initialTemplates.available);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [fallbackText, setFallbackText] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const results = useMemo(
@@ -62,16 +63,10 @@ export default function App() {
   const conditions = useMemo(() => conditionNames(assignment), [assignment]);
   const nearDuplicates = useMemo(() => findNearDuplicates(conditions), [conditions]);
   const exportable = hasExportableResults(results);
-  const dilutionInvalid = parseDilution(dilutionText) === null;
+  const orderedConditions = useMemo(() => results.conditions.map((c) => c.condition), [results]);
 
   // Colors follow the condition (first-seen order), not its current position, so reordering never repaints.
-  const colorOf = useCallback(
-    (condition: string) => {
-      const i = colorKeys.indexOf(condition);
-      return PALETTE[(i < 0 ? colorKeys.length : i) % PALETTE.length];
-    },
-    [colorKeys],
-  );
+  const colorOf = useCallback((condition: string) => colorFor(colorKeys, condition), [colorKeys]);
 
   function rememberColors(names: string[]) {
     setColorKeys((k) => [...k, ...names.filter((n, i) => !k.includes(n) && names.indexOf(n) === i)]);
@@ -101,6 +96,25 @@ export default function App() {
     } catch {
       setCopyStatus(null);
       setFallbackText(text);
+    }
+  }
+
+  async function exportExcel() {
+    setExportError(null);
+    try {
+      const bytes = await buildWorkbook({
+        plate,
+        assignment,
+        excluded,
+        settings,
+        results,
+        colorOf,
+        source,
+        exportedAt: new Date(),
+      });
+      downloadWorkbook(bytes, `${baseName(source)}_results.xlsx`);
+    } catch (e) {
+      setExportError(`Excel export failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -165,14 +179,44 @@ export default function App() {
                   return next;
                 })
               }
-              onMerge={(from, to) => updateAssignment(mergeCondition(assignment, from, to))}
+              dilutions={settings.dilutions}
+              onMerge={(froms, to) => {
+                updateAssignment(froms.reduce((a, from) => mergeCondition(a, from, to), assignment));
+                setSettings((s) => ({
+                  ...s,
+                  dilutions: froms.reduce((d, from) => mergeDilutions(d, from, to).dilutions, s.dilutions),
+                }));
+              }}
+            />
+            <ConditionsPanel
+              key={dilutionResetKey}
+              conditions={orderedConditions}
+              colorOf={colorOf}
+              defaultDilution={settings.dilution}
+              dilutions={settings.dilutions}
+              onDefaultChange={(d) => setSettings((s) => ({ ...s, dilution: d }))}
+              onConditionChange={(c, d) =>
+                setSettings((s) => {
+                  const dilutions = { ...s.dilutions };
+                  if (d === null) delete dilutions[c];
+                  else dilutions[c] = d;
+                  return { ...s, dilutions };
+                })
+              }
             />
             <TemplatesPanel
               templates={templates}
               storageAvailable={storageAvailable}
               canSave={Object.keys(assignment).length > 0}
               onSave={(name) =>
-                persist(upsertTemplate(templates, { name, assignment, settings, conditionOrder: order }))
+                persist(
+                  upsertTemplate(templates, {
+                    name,
+                    assignment,
+                    settings: templateSettings(settings, assignment),
+                    conditionOrder: order,
+                  }),
+                )
               }
               onApply={(t) => {
                 const nextOrder = reconcileOrder(t.conditionOrder, t.assignment);
@@ -180,7 +224,7 @@ export default function App() {
                 setOrder(nextOrder);
                 rememberColors(nextOrder);
                 setSettings(t.settings);
-                setDilutionText(String(t.settings.dilution));
+                setDilutionResetKey((k) => k + 1);
               }}
               onDelete={(name) => persist(templates.filter((t) => t.name !== name))}
               onImport={(list) => persist(list.reduce(upsertTemplate, templates))}
@@ -192,19 +236,6 @@ export default function App() {
       <section className="card">
         <h2>3. Results</h2>
         <div className="settings">
-          <label>
-            Dilution factor ×
-            <input
-              className={dilutionInvalid ? 'invalid' : ''}
-              value={dilutionText}
-              inputMode="decimal"
-              onChange={(e) => {
-                setDilutionText(e.target.value);
-                const d = parseDilution(e.target.value);
-                if (d !== null) setSettings((s) => ({ ...s, dilution: d }));
-              }}
-            />
-          </label>
           <label>
             Input unit
             <select value={settings.inputUnit} onChange={(e) => setUnit('inputUnit', e.target.value as Unit)}>
@@ -236,9 +267,6 @@ export default function App() {
             ))}
           </fieldset>
         </div>
-        {dilutionInvalid && (
-          <p className="error">Dilution must be a number greater than 0. Using the last valid value ({settings.dilution}).</p>
-        )}
 
         <ResultsTable results={results} unit={settings.outputUnit} onMove={(c, d) => setOrder((o) => moveCondition(o, c, d))} />
 
@@ -246,9 +274,7 @@ export default function App() {
           <button
             className="primary"
             disabled={!exportable}
-            onClick={() =>
-              downloadWorkbook(buildWorkbook(plate, assignment, excluded, settings, results), `${baseName(source)}_results.xlsx`)
-            }
+            onClick={() => void exportExcel()}
           >
             Download Excel
           </button>
@@ -260,6 +286,7 @@ export default function App() {
           </button>
           {copyStatus && <span className="hint">{copyStatus}</span>}
         </div>
+        {exportError && <p className="error">{exportError}</p>}
         {fallbackText !== null && (
           <div className="fallback">
             <p className="warning">The browser blocked clipboard access. Select the text below and copy it (Cmd/Ctrl+C):</p>
