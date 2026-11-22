@@ -2,6 +2,8 @@
 
 A browser page for turning ELISA concentration values (e.g. pg/ml from the plate reader software) into biological-replicate values, summary statistics, a bar chart, and Prism/Excel exports. Everything runs in your browser — no data is uploaded.
 
+**Use it online:** https://maw168.github.io/Elisa_calculator/ (deployed from `main` by the "Deploy to GitHub Pages" workflow).
+
 ## Install and run
 
 Requires Node.js 20 or newer.
