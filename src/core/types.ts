@@ -30,7 +30,10 @@ export const UNITS: Unit[] = ['pg/ml', 'ng/ml', 'ug/ml'];
 export type ErrorBar = 'SD' | 'SEM';
 
 export interface Settings {
+  /** Default dilution factor x (entered as 1:x), used by conditions without their own. */
   dilution: number;
+  /** Per-condition dilution factor x, keyed by exact condition name. */
+  dilutions: Record<string, number>;
   inputUnit: Unit;
   outputUnit: Unit;
   errorBar: ErrorBar;
@@ -38,6 +41,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   dilution: 1,
+  dilutions: {},
   inputUnit: 'pg/ml',
   outputUnit: 'pg/ml',
   errorBar: 'SD',

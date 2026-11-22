@@ -46,6 +46,26 @@ export function mergeCondition(assignment: Assignment, from: string, to: string)
   return next;
 }
 
+export interface DilutionMerge {
+  dilutions: Record<string, number>;
+  /** Set when both names had their own, different dilutions. */
+  conflict: { kept: number; discarded: number } | null;
+}
+
+/**
+ * Resolves per-condition dilutions when merging `from` into `to`: `to` keeps its own
+ * dilution if set, otherwise inherits `from`'s; `from`'s entry is removed.
+ */
+export function mergeDilutions(dilutions: Record<string, number>, from: string, to: string): DilutionMerge {
+  const next = { ...dilutions };
+  const fromD = next[from];
+  const toD = next[to];
+  delete next[from];
+  if (toD === undefined && fromD !== undefined) next[to] = fromD;
+  const conflict = toD !== undefined && fromD !== undefined && toD !== fromD ? { kept: toD, discarded: fromD } : null;
+  return { dilutions: next, conflict };
+}
+
 /** Condition names present in an assignment, in plate order. */
 export function conditionNames(assignment: Assignment): string[] {
   return [...new Set(Object.values(assignment).map((a) => a.condition))];

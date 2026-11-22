@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeResults, groupWells, parseDilution, technicalMean, unitFactor } from './calc';
+import { computeResults, formatDilution, groupWells, parseDilution, technicalMean, unitFactor } from './calc';
 import { DEFAULT_SETTINGS, emptyPlate, type Assignment, type Plate } from './types';
 import { loadReferenceWorkbook } from '../__fixtures__/fixture';
 import {
@@ -71,6 +71,42 @@ describe('dilution and units', () => {
     expect(parseDilution('')).toBeNull();
     expect(parseDilution('500')).toBe(500);
     expect(parseDilution('2.5')).toBe(2.5);
+    expect(parseDilution('1:0')).toBeNull();
+    expect(parseDilution('1:-5')).toBeNull();
+    expect(parseDilution('1:abc')).toBeNull();
+    expect(parseDilution('1:')).toBeNull();
+    expect(parseDilution('2:500')).toBeNull();
+    expect(parseDilution('1:2:3')).toBeNull();
+  });
+
+  it('Dilution notation: 1:x and bare x', () => {
+    expect(parseDilution('1:500')).toBe(500);
+    expect(parseDilution(' 1 : 500 ')).toBe(500);
+    expect(parseDilution('500')).toBe(500);
+    expect(formatDilution(500)).toBe('1:500');
+    expect(formatDilution(2.5)).toBe('1:2.5');
+  });
+
+  it('Conditions with different dilutions', () => {
+    const a: Assignment = {};
+    assignRange(a, 0, 3, 5, 'E+s+p api', 1);
+    assignRange(a, 6, 3, 5, 'Pao1 api', 1);
+    const settings = { ...DEFAULT_SETTINGS, dilution: 500, dilutions: { 'Pao1 api': 100 } };
+    const r = computeResults(plate, a, none, settings);
+    const e = r.groups.find((g) => g.condition === 'E+s+p api')!;
+    const p = r.groups.find((g) => g.condition === 'Pao1 api')!;
+    expect(e.dilution).toBe(500);
+    expect(e.value).toBeCloseTo(e.technicalMean! * 500, 9);
+    expect(p.dilution).toBe(100);
+    expect(p.value).toBeCloseTo(p.technicalMean! * 100, 9);
+  });
+
+  it('Condition falls back to the default', () => {
+    const a: Assignment = {};
+    assignRange(a, 0, 3, 5, 'E+s+p api', 1);
+    const settings = { ...DEFAULT_SETTINGS, dilution: 200, dilutions: { other: 7 } };
+    const g = computeResults(plate, a, none, settings).groups[0];
+    expect(g.value).toBeCloseTo(g.technicalMean! * 200, 9);
   });
 });
 

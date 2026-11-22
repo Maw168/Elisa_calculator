@@ -14,6 +14,8 @@ export interface GroupResult extends ReplicateGroup {
   excludedWells: WellId[];
   /** Mean of usable wells, null if none are usable. */
   technicalMean: number | null;
+  /** Dilution factor applied to this group (the condition's own, or the default). */
+  dilution: number;
   /** technicalMean x dilution x unit factor, null if technicalMean is null. */
   value: number | null;
 }
@@ -93,12 +95,27 @@ export function unitFactor(from: Unit, to: Unit): number {
   return 1000 ** (UNIT_EXPONENT[from] - UNIT_EXPONENT[to]);
 }
 
-/** Parses a dilution factor; returns null unless it is a finite number > 0. */
+/**
+ * Parses a dilution written as `1:x` (spaces around the colon allowed) or a bare `x`.
+ * Returns the factor x, or null unless it is a finite number > 0.
+ */
 export function parseDilution(text: string): number | null {
-  const trimmed = text.trim();
-  if (trimmed === '') return null;
+  let trimmed = text.trim();
+  const ratio = /^1\s*:\s*(.+)$/.exec(trimmed);
+  if (ratio) trimmed = ratio[1].trim();
+  if (trimmed === '' || trimmed.includes(':')) return null;
   const n = Number(trimmed);
   return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Formats a dilution factor x as `1:x`. */
+export function formatDilution(x: number): string {
+  return `1:${x}`;
+}
+
+/** Dilution factor used for a condition: its own value if set, else the default. */
+export function dilutionFor(settings: Settings, condition: string): number {
+  return settings.dilutions[condition] ?? settings.dilution;
 }
 
 export function summarize(values: number[]): Pick<ConditionResult, 'n' | 'mean' | 'sd' | 'sem'> {
@@ -122,9 +139,10 @@ export function computeResults(
   settings: Settings,
   order: string[] = [],
 ): Results {
-  const factor = settings.dilution * unitFactor(settings.inputUnit, settings.outputUnit);
+  const units = unitFactor(settings.inputUnit, settings.outputUnit);
   const groups: GroupResult[] = groupWells(assignment).map((g) => {
     const tm = technicalMean(plate, g.wells, excluded);
+    const dilution = dilutionFor(settings, g.condition);
     return {
       ...g,
       values: g.wells.map((w) => {
@@ -133,7 +151,8 @@ export function computeResults(
       }),
       excludedWells: g.wells.filter((w) => excluded.has(w)),
       technicalMean: tm,
-      value: tm === null ? null : tm * factor,
+      dilution,
+      value: tm === null ? null : tm * dilution * units,
     };
   });
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { WellId } from '../core/types';
+import { formatDilution } from '../core/calc';
 
 interface Props {
   selection: ReadonlySet<WellId>;
@@ -9,7 +10,10 @@ interface Props {
   onApply: (condition: string, bio: number) => void;
   onClear: () => void;
   onExclude: (exclude: boolean) => void;
-  onMerge: (from: string, to: string) => void;
+  /** Per-condition dilutions, to show conflicts in the merge offer. */
+  dilutions: Record<string, number>;
+  /** Merges every name in `froms` into `to`. */
+  onMerge: (froms: string[], to: string) => void;
 }
 
 export function AssignPanel({
@@ -20,6 +24,7 @@ export function AssignPanel({
   onApply,
   onClear,
   onExclude,
+  dilutions,
   onMerge,
 }: Props) {
   const [condition, setCondition] = useState('');
@@ -93,19 +98,38 @@ export function AssignPanel({
           Restore
         </button>
       </div>
-      {nearDuplicates.map((group) => (
-        <div key={group.join('|')} className="warning" role="status">
-          <p>These names may be the same condition: {group.map((g) => `“${g}”`).join(', ')}</p>
-          {group.map((target) => (
-            <button
-              key={target}
-              onClick={() => group.filter((g) => g !== target).forEach((from) => onMerge(from, target))}
-            >
-              Merge into “{target}”
-            </button>
-          ))}
-        </div>
-      ))}
+      {nearDuplicates.map((group) => {
+        const withOwn = group.filter((g) => dilutions[g] !== undefined);
+        const differ = new Set(withOwn.map((g) => dilutions[g])).size > 1;
+        return (
+          <div key={group.join('|')} className="warning" role="status">
+            <p>These names may be the same condition: {group.map((g) => `“${g}”`).join(', ')}</p>
+            {differ && (
+              <p>
+                Their dilutions differ: {withOwn.map((g) => `“${g}” ${formatDilution(dilutions[g])}`).join(', ')}.
+              </p>
+            )}
+            {group.map((target) => {
+              const froms = group.filter((g) => g !== target);
+              // The kept name keeps its own dilution; otherwise it inherits the first merged name's.
+              const kept = dilutions[target] ?? froms.map((f) => dilutions[f]).find((d) => d !== undefined);
+              const discarded = [...new Set(froms.map((f) => dilutions[f]).filter((d) => d !== undefined && d !== kept))];
+              return (
+                <button key={target} onClick={() => onMerge(froms, target)}>
+                  Merge into “{target}”
+                  {differ && kept !== undefined && (
+                    <>
+                      {' '}
+                      (keeps {formatDilution(kept)}
+                      {discarded.length > 0 && `, discards ${discarded.map((d) => formatDilution(d!)).join(', ')}`})
+                    </>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
